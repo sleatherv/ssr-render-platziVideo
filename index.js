@@ -14,14 +14,14 @@ app.use(cookieParser());
 
 //Basic Strategy
 require('./utils/auth/strategies/basic');
-const THIRTY_DAYS_IN_SEC = 2592000;
-const TWO_HOURS_IN_SEC = 7200;
+const THIRTY_DAYS_IN_SEC = 2592000000;
+const TWO_HOURS_IN_SEC = 7200000;
 app.post("/auth/sign-in", async function (req, res, next) {
     // Obtenemos el atributo rememberMe desde el cuerpo del request
     const { rememberMe } = req.body;
     passport.authenticate('basic', function (error, data) {
         try {
-            if (error || data) {
+            if (error || !data) {
                 next(boom.unauthorized());
             }
             req.login(data, { session: false }, async function (err) {
@@ -29,15 +29,17 @@ app.post("/auth/sign-in", async function (req, res, next) {
                     next(err);
                 }
                 const { token, ...user } = data;
-                // Si el atributo rememberMe es verdadero la expiración será en 30 dias
-                // de lo contrario la expiración será en 2 horas
-                res.cookie("token", token, {
-                    httpOnly: !config.dev,
-                    secure: !config.dev,
-                    maxAge: rememberMe ? THIRTY_DAYS_IN_SEC : TWO_HOURS_IN_SEC
-                });
+                if (!config.dev) {
+                    res.cookie("token", token, {
+                        httpOnly: true,
+                        secure: true,
+                        maxAge: rememberMe ? THIRTY_DAYS_IN_SEC : TWO_HOURS_IN_SEC
+                    });
+                } else {
+                    res.cookie('token', token, { withCredentials: true });
+                    res.status(200).json(user);
+                }
             });
-            res.status(200), json(user);
         } catch (error) {
             next(error);
         }
@@ -67,11 +69,43 @@ app.get("/movies", async function (req, res, next) {
 });
 
 app.post("/user-movies", async function (req, res, next) {
-
+    try {
+        const { body: userMovie } = req;
+        const { token } = req.cookies;
+        const { data, status } = await axios({
+            url: `${config.apiUrl}/api/user-movies`,
+            headers: { Authorization: `Bearer ${token}` },
+            method: 'post',
+            data: userMovie,
+            withCredentials: true
+        });
+        if (status !== 201) {
+            return next(boom.badImplementation());
+        }
+        res.status(201).json(data);
+    } catch (error) {
+        next(error)
+    }
 });
 
 app.delete("/user-movies/:userMovieId", async function (req, res, next) {
+    try {
+        const { userMovieId } = req.params;
+        const { token } = req.cookies;
 
+        const { data, status } = await axios({
+            url: `${config.apiUrl}/api/user-movies/${userMovieId}`,
+            headers: { Authorization: `Bearer ${token}` },
+            method: 'delete',
+        });
+        if (status !== 200) {
+            return next(boom.badImplementation());
+        }
+        res.status(200).json(data);
+
+    } catch (error) {
+        next(error)
+    }
 });
 
 app.listen(config.port, function () {
